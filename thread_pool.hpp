@@ -37,9 +37,15 @@ class ThreadPool {
 };
 
 template <typename Type>
-ThreadPool<Type>::ThreadPool(int thread_number = 20) {
+void clear(queue<Type> &q) {
+  queue<Type> empty;
+  swap(empty, q);
+}
+
+template <typename Type>
+ThreadPool<Type>::ThreadPool(int thread_number) {
   this->thread_number = thread_number;
-  this->tasks.clear();
+  clear(this->tasks);
   this->state = true;
 
   if (this->thread_number <= 0) {
@@ -66,7 +72,7 @@ bool ThreadPool<Type>::add_task(Type *task) {
 
   bool is_signal = tasks.empty();
 
-  tasks.push(taks);
+  tasks.push(task);
   mutex_locker.unlock();
   if (is_signal) {
     cond_locker.signl();
@@ -109,7 +115,7 @@ void ThreadPool<Type>::run() {
     if (task == NULL) {
       cond_locker.wait();
     } else {
-      task->doit();
+      task->run();
       delete task;
     }
   }
@@ -117,7 +123,7 @@ void ThreadPool<Type>::run() {
 
 template <typename Type>
 Type *ThreadPool<Type>::get_task() {
-  T *task = NULL;
+  Type *task = NULL;
   mutex_locker.lock();
   if (!tasks.empty()) {
     task = tasks.front();
@@ -126,3 +132,5 @@ Type *ThreadPool<Type>::get_task() {
   mutex_locker.unlock();
   return task;
 }
+
+#endif 

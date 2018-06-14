@@ -1,3 +1,5 @@
 *.o
 *.exe
 main.cpp
+*.html
+my_http

@@ -13,7 +13,7 @@ class SemaphoreLocker {
  public:
   SemaphoreLocker() {
     if (sem_init(&my_sem, 0, 0) != 0) {
-      perror("Semaphore initialization failed")
+      perror("Semaphore initialization failed");
     }
   }
 
@@ -68,9 +68,9 @@ class ConditionLocker {
   bool wait() {
     int result = 0;
     pthread_mutex_lock(&my_mutex);
-    ans = pthread_cond_wait(&my_cond, &my_mutex);
+    result = pthread_cond_wait(&my_cond, &my_mutex);
     pthread_mutex_unlock(&my_mutex);
-    return ans == 0;
+    return result == 0;
   }
 
   bool signl() { return pthread_cond_signal(&my_cond) == 0; }

@@ -14,6 +14,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <iostream>
 #include <sstream>
 #include <string>
 
@@ -24,10 +25,12 @@ const int BUFFSIZE = 4096;
 class Task {
  private:
   int client_fd;
+  bool client_state;
 
  public:
   Task(){};
-  Task(int client_fd) : client_fd(client_fd){};
+  Task(int client_fd, bool client_state)
+      : client_fd(client_fd), client_state(client_state){};
   ~Task(){};
   void response(string message, int status);
   void response_file(int size, int status);
@@ -58,7 +61,7 @@ void Task::response_file(int size, int status) {
 void Task::run() {
   char buffer[BUFFSIZE];
   int size = 0;
-  while (true) {
+  while (client_state) {
     size = read(client_fd, buffer, BUFFSIZE);
     if (size > 0) {
       string method;
@@ -72,13 +75,12 @@ void Task::run() {
       while (buffer[i] != ' ' && buffer[i] != '\0') {
         filename += buffer[i++];
       }
-
+      // cout << method << endl;
+      // cout << filename << endl;
       if (method == "GET") {
         response_get(filename);
-        break;
       } else if (method == "HEAD") {
         response_head(filename);
-        break;
       } else if (method == "POST") {
         //   string content;
         //   int pos = content.find("Content-Length");
@@ -94,12 +96,16 @@ void Task::run() {
         //   length = content.find(':', 0);
         // }
       } else {
+        client_state = false;
         continue;
       }
-      sleep(2);
-      close(client_fd);
+    } else {
+      client_state = false;
+      continue;
     }
   }
+  sleep(2);
+  close(client_fd);
 }
 
 void Task::response_get(string filename) {
@@ -107,23 +113,30 @@ void Task::response_get(string filename) {
   bool is_dynamic = false;
   string command;
   string file = filename;
+  file.insert(0, ".");
   int pos = filename.find('?', 0);
   if (pos != -1) {
     command = filename.substr(pos + 1, filename.length() - pos);
+ 
     file = filename.substr(0, pos);
     is_dynamic = true;
   }
+  // cout << filename << endl;
+  if (filename[0] == '/' && filename.length() == 1) {
+    file += "index.html";
+  }
+  // cout << file << endl;
 
   struct stat filestat;
   int ret = stat(file.c_str(), &filestat);
-
+  // cout << ret << endl;
   if (ret < 0 || S_ISDIR(filestat.st_mode)) {
     string message;
-    message += "<html><title>Tinyhttpd Error</title>";
+    message += "<html><title>Myhttpd Error</title>";
     message += "<body>\r\n";
     message += " 404\r\n";
     message += " <p>GET: Can't find the file";
-    message += " <hr><h3>The Tiny Web Server<h3></body>";
+    message += " <hr><h3>My Web Server<h3></body>";
     response(message, 404);
     return;
   }
@@ -139,17 +152,14 @@ void Task::response_get(string filename) {
   } else {
     int filefd = open(file.c_str(), O_RDONLY);
     response_file(filestat.st_size, 200);
+    cout << filestat.st_size << endl;
     sendfile(client_fd, filefd, 0, filestat.st_size);
     close(filefd);
   }
 }
 
-void Task::response_post(string filename){
+void Task::response_post(string filename) {}
 
-}
-
-void Task::response_head(string filename){
-  
-}
+void Task::response_head(string filename) {}
 
 #endif

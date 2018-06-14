@@ -60,7 +60,7 @@ int main(int argc, char *argv[]) {
     client_fd =
         accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
     // cout << "client accept" << endl;
-    Task *task = new Task(client_fd);
+    Task *task = new Task(client_fd, true);
     pool.add_task(task);
   }
   close(server_fd);

@@ -34,7 +34,7 @@ class Task {
   ~Task(){};
   void response(string message, int status);
   void response_file(int size, int status);
-  void response_post(string filename);
+  void response_post(string filename, string command);
   void response_get(string filename);
   void response_head(string filename);
   void run();
@@ -75,26 +75,26 @@ void Task::run() {
       while (buffer[i] != ' ' && buffer[i] != '\0') {
         filename += buffer[i++];
       }
-      // cout << method << endl;
-      // cout << filename << endl;
+      cout << method << endl;
+      cout << filename << endl;
       if (method == "GET") {
         response_get(filename);
       } else if (method == "HEAD") {
         response_head(filename);
       } else if (method == "POST") {
-        //   string content;
-        //   int pos = content.find("Content-Length");
-        //   while (pos == -1) {
-        //     content.clear();
-        //     while (buffer[i] != ' ' && buffer[i] != '\0') {
-        //       content += buffer[i++];
-        //     }
-        //     i++;
-        //     pos = content.find("Content-Length");
-        //   }
-        //   int length;
-        //   length = content.find(':', 0);
-        // }
+        string content;
+        int pos = content.find("username=");
+        while (pos == -1) {
+          content.clear();
+          while (buffer[i] != ' ' && buffer[i] != '\0') {
+            content += buffer[i++];
+          }
+          i++;
+          pos = content.find("username=");
+        }
+        string command = content.substr(pos, content.length() - pos);
+        cout << command << endl;
+        response_post("/index.html", command);
       } else {
         client_state = false;
         continue;
@@ -117,7 +117,7 @@ void Task::response_get(string filename) {
   int pos = filename.find('?', 0);
   if (pos != -1) {
     command = filename.substr(pos + 1, filename.length() - pos);
- 
+
     file = filename.substr(0, pos);
     is_dynamic = true;
   }
@@ -158,7 +158,31 @@ void Task::response_get(string filename) {
   }
 }
 
-void Task::response_post(string filename) {}
+void Task::response_post(string filename, string command) {
+  string file = filename;
+  file.insert(0, ".");
+  cout << file << endl;
+  struct stat filestat;
+  int ret = stat(file.c_str(), &filestat);
+  if (ret < 0 || S_ISDIR(filestat.st_mode)) {
+    string message;
+    message += "<html><title>Myhttpd Error</title>";
+    message += "<body>\r\n";
+    message += " 404\r\n";
+    message += " <p>GET: Can't find the file";
+    message += " <hr><h3>My Web Server<h3></body>";
+    response(message, 404);
+    return;
+  }
+  response_get(filename);
+  if (fork() == 0) {
+    // Redirect output to the client
+    dup2(client_fd, STDOUT_FILENO);
+    // Perform subroutines
+    execl(file.c_str(), command.c_str(), NULL);
+  }
+  wait(NULL);
+}
 
 void Task::response_head(string filename) {}
 

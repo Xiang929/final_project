@@ -75,8 +75,8 @@ void Task::run() {
       while (buffer[i] != ' ' && buffer[i] != '\0') {
         filename += buffer[i++];
       }
-      cout << method << endl;
-      cout << filename << endl;
+      // cout << method << endl;
+      // cout << filename << endl;
       if (method == "GET") {
         response_get(filename);
       } else if (method == "HEAD") {
@@ -152,7 +152,7 @@ void Task::response_get(string filename) {
   } else {
     int filefd = open(file.c_str(), O_RDONLY);
     response_file(filestat.st_size, 200);
-    cout << filestat.st_size << endl;
+    // cout << filestat.st_size << endl;
     sendfile(client_fd, filefd, 0, filestat.st_size);
     close(filefd);
   }

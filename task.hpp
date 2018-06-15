@@ -72,7 +72,7 @@ void Task::run() {
       }
       i++;
 
-      while (buffer[i] != ' ' && buffer[i] != '\0') {
+      while (buffer[i] != ' ' && buffer[i] != '\0' && buffer[i] != '?') {
         filename += buffer[i++];
       }
       // cout << method << endl;
@@ -93,8 +93,11 @@ void Task::run() {
           pos = content.find("username=");
         }
         string command = content.substr(pos, content.length() - pos);
-        cout << command << endl;
-        response_post("/index.html", command);
+        // cout << command << endl;
+        if (filename[0] == '/' && filename.length() == 1)
+          response_post("/index.html", command);
+        else
+          response_post(filename, command);
       } else {
         client_state = false;
         continue;

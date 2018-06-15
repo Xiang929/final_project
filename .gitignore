@@ -1,7 +1,4 @@
 *.o
 *.exe
 main.cpp
-*.html
 my_http
-*.jpg
-GitHub_files

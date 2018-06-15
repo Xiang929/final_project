@@ -1,4 +1,4 @@
-CC = g++ -std=c++11 $(target)
+CC = g++ -std=c++11
 CC_FLAGS = -W -Wall -Werror -I./
 EXEC = my_http
 

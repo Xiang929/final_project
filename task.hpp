@@ -33,29 +33,34 @@ class Task {
       : client_fd(client_fd), client_state(client_state){};
   ~Task(){};
   void response(string message, int status);
-  void response_file(int size, int status);
+  void response_file(int size, int status, string content_type);
   void response_post(string filename, string command);
   void response_get(string filename);
   void response_head(string filename);
   void run();
+
+ private:
+  string get_content_type(string suffix);
 };
 
 void Task::response(string message, int status) {
-  char buffer[BUFFSIZE];
-  sprintf(buffer,
-          "HTTP/1.1 %d OK\r\nConnection: Close\r\n"
-          "content-length:%zu\r\n\r\n",
-          status, message.size());
-  sprintf(buffer, "%s%s", buffer, message.c_str());
-  write(client_fd, buffer, strlen(buffer));
+  stringstream out_message;
+  out_message << "HTTP/1.1 " << to_string(status) << " OK\r\n"
+              << "Connection: Close\r\n"
+              << "Content-length:" << to_string(message.size()) << "\r\n\r\n";
+  const char* buffer = out_message.str().c_str();
+  write(client_fd, buffer, out_message.str().size());
 }
 
-void Task::response_file(int size, int status) {
-  char buffer[BUFFSIZE];
-  sprintf(buffer,
-          "HTTP/1.1 %d OK\r\nConnection: Close\r\ncontent-length:%d\r\n\r\n",
-          status, size);
-  write(client_fd, buffer, strlen(buffer));
+void Task::response_file(int size, int status, string content_type) {
+  stringstream out_message;
+  out_message << "HTTP/1.1 " << to_string(status) << " OK\r\n"
+              << "Connection: Close\r\n"
+              << "Content-length:" << to_string(size) << "\r\n"
+              << "Content-Type: " << content_type << "\r\n\r\n";
+  const char* buffer = out_message.str().c_str();
+  cout << buffer << endl;
+  write(client_fd, buffer, out_message.str().size());
 }
 
 void Task::run() {
@@ -75,8 +80,8 @@ void Task::run() {
       while (buffer[i] != ' ' && buffer[i] != '\0' && buffer[i] != '?') {
         filename += buffer[i++];
       }
-      // cout << method << endl;
-      // cout << filename << endl;
+      cout << method << endl;
+      cout << filename << endl;
       if (method == "GET") {
         response_get(filename);
       } else if (method == "HEAD") {
@@ -93,7 +98,7 @@ void Task::run() {
           pos = content.find("username=");
         }
         string command = content.substr(pos, content.length() - pos);
-        // cout << command << endl;
+        cout << command << endl;
         if (filename[0] == '/' && filename.length() == 1)
           response_post("/index.html", command);
         else
@@ -112,7 +117,6 @@ void Task::run() {
 }
 
 void Task::response_get(string filename) {
-  int i = 0;
   bool is_dynamic = false;
   string command;
   string file = filename;
@@ -128,7 +132,7 @@ void Task::response_get(string filename) {
   if (filename[0] == '/' && filename.length() == 1) {
     file += "index.html";
   }
-  // cout << file << endl;
+  cout << file << endl;
 
   struct stat filestat;
   int ret = stat(file.c_str(), &filestat);
@@ -154,8 +158,12 @@ void Task::response_get(string filename) {
     wait(NULL);
   } else {
     int filefd = open(file.c_str(), O_RDONLY);
-    response_file(filestat.st_size, 200);
-    // cout << filestat.st_size << endl;
+    int pos = file.rfind('.', file.length() - 1);
+    string suffix = file.substr(pos + 1, file.length() - pos);
+    string content_type = get_content_type(suffix);
+    cout << content_type << endl;
+    response_file(filestat.st_size, 200, content_type);
+    cout << filestat.st_size << endl;
     sendfile(client_fd, filefd, 0, filestat.st_size);
     close(filefd);
   }
@@ -188,5 +196,19 @@ void Task::response_post(string filename, string command) {
 }
 
 void Task::response_head(string filename) {}
+
+string Task::get_content_type(string suffix) {
+  if (suffix == "asc" || suffix == "txt" || suffix == "text" ||
+      suffix == "pot" || suffix == "brf" || suffix == "srt") {
+    return "text/plain";
+  }
+  if (suffix == "jpeg" || suffix == "jpg") {
+    return "image/jpeg";
+  }
+  if (suffix == "html" || suffix == "htm" || suffix == "shtml") {
+    return "text/html";
+  }
+  return NULL;
+}
 
 #endif

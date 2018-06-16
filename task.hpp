@@ -21,6 +21,7 @@
 using namespace std;
 
 const int BUFFSIZE = 4096;
+const string path = "./Resource";
 
 class Task {
  private:
@@ -119,8 +120,8 @@ void Task::run() {
 void Task::response_get(string filename) {
   bool is_dynamic = false;
   string command;
-  string file = filename;
-  file.insert(0, ".");
+  string file = path;
+  file += filename;
   int pos = filename.find('?', 0);
   if (pos != -1) {
     command = filename.substr(pos + 1, filename.length() - pos);
@@ -170,8 +171,8 @@ void Task::response_get(string filename) {
 }
 
 void Task::response_post(string filename, string command) {
-  string file = filename;
-  file.insert(0, ".");
+  string file = path;
+  file += filename;
   cout << file << endl;
   struct stat filestat;
   int ret = stat(file.c_str(), &filestat);

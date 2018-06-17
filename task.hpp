@@ -70,9 +70,9 @@ void Task::run() {
   while (client_state) {
     size = read(client_fd, buffer, BUFFSIZE);
     if (size > 0) {
+      int i = 0;
       string method;
       string filename;
-      int i = 0;
       while (buffer[i] != ' ' && buffer[i] != '\0') {
         method += buffer[i++];
       }
@@ -98,15 +98,24 @@ void Task::run() {
           i++;
           pos = content.find("username=");
         }
-        string command = content.substr(pos, content.length() - pos);
+        string command;
+        if (pos != -1)
+          command = content.substr(pos, content.length() - pos);
+        else
+          command = "";
         cout << command << endl;
         if (filename[0] == '/' && filename.length() == 1)
           response_post("/index.html", command);
         else
           response_post(filename, command);
       } else {
-        client_state = false;
-        continue;
+        stringstream message;
+        message << "<html><title>Myhttpd Error</title>"
+                << "<body>\r\n"
+                << " 501\r\n"
+                << " <p>" << method << "Httpd does not implement this method"
+                << "<hr><h3>The Tiny Web Server<h3></body>";
+        response(message.str(), 501);
       }
     } else {
       client_state = false;

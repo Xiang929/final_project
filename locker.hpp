@@ -13,7 +13,7 @@ class SemaphoreLocker {
  public:
   SemaphoreLocker() {
     if (sem_init(&my_sem, 0, 0) != 0) {
-      perror("Semaphore initialization failed");
+      printf("Semaphore initialization failed\n");
     }
   }
 
@@ -32,8 +32,8 @@ class MutexLocker {
 
  public:
   MutexLocker() {
-    if (pthread_mutex_init(&my_mutex, NULL) == 0) {
-      perror("Mutex initialization failed");
+    if (pthread_mutex_init(&my_mutex, NULL) != 0) {
+      printf("Mutex initialization failed\n");
     }
   }
 
@@ -52,11 +52,12 @@ class ConditionLocker {
 
  public:
   ConditionLocker() {
-    if (pthread_mutex_init(&my_mutex, NULL) == 0) {
-      perror("Mutex initialization failed");
+    if (pthread_mutex_init(&my_mutex, NULL) != 0) {
+      printf("Mutex initialization failed\n");
     }
-    if (pthread_cond_init(&my_cond, NULL) == 0) {
-      perror("Condition initialization failed");
+    if (pthread_cond_init(&my_cond, NULL) != 0) {
+      pthread_mutex_destroy(&my_mutex);
+      printf("Condition initialization failed");
     }
   }
 
@@ -78,4 +79,4 @@ class ConditionLocker {
   bool broadcast() { return pthread_cond_broadcast(&my_cond) == 0; }
 };
 
-#endif 
+#endif

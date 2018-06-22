@@ -122,7 +122,7 @@ void Task::run() {
       continue;
     }
   }
-  sleep(2);
+  // sleep(2);
   close(client_fd);
 }
 
@@ -217,8 +217,11 @@ string Task::get_content_type(string suffix) {
   }
   if (suffix == "html" || suffix == "htm" || suffix == "shtml") {
     return "text/html";
+  }  if (suffix == "ico") {
+    return "image/x-icon";
   }
-  return NULL;
+
+  return "";
 }
 
 #endif

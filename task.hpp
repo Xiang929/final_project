@@ -14,6 +14,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -21,7 +22,9 @@
 using namespace std;
 
 const int BUFFSIZE = 4096;
+const size_t SSIZE_MAX = 2000000000 - 1;
 const string path = "./Resource";
+const int BUFF_SIZE = 1024 * 1024;
 
 class Task {
  private:
@@ -173,8 +176,23 @@ void Task::response_get(string filename) {
     string content_type = get_content_type(suffix);
     cout << content_type << endl;
     response_file(filestat.st_size, 200, content_type);
-    cout << filestat.st_size << endl;
-    sendfile(client_fd, filefd, 0, filestat.st_size);
+    cout << "filesize: " << filestat.st_size << endl;
+    // size_t sd = sendfile(client_fd, filefd, NULL, filestat.st_size);
+    // cout << "sendsize: " << sd << endl;
+    __off64_t offset = 0;
+    ssize_t sent;
+    for (size_t size_to_send = filestat.st_size; size_to_send > 0;) {
+      sent = sendfile64(client_fd, filefd, &offset, size_to_send);
+      if (sent <= 0) {
+        cout << "sent:" << sent << endl;
+        if (sent != 0) perror("sendfile");
+        break;
+      }
+      size_to_send -= sent;
+      cout << "offset: " << offset << endl;
+      cout << "size_to_send: " << size_to_send << endl;
+      cout << "sent:" << sent << endl;
+    }
     close(filefd);
   }
 }
@@ -217,7 +235,8 @@ string Task::get_content_type(string suffix) {
   }
   if (suffix == "html" || suffix == "htm" || suffix == "shtml") {
     return "text/html";
-  }  if (suffix == "ico") {
+  }
+  if (suffix == "ico") {
     return "image/x-icon";
   }
 

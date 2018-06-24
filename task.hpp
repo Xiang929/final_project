@@ -24,17 +24,19 @@ using namespace std;
 const int BUFFSIZE = 4096;
 const size_t SSIZE_MAX = 2000000000 - 1;
 const string path = "./Resource";
-const int BUFF_SIZE = 1024 * 1024;
 
 class Task {
  private:
   int client_fd;
   bool client_state;
+  char order[BUFFSIZE];
 
  public:
   Task(){};
-  Task(int client_fd, bool client_state)
-      : client_fd(client_fd), client_state(client_state){};
+  Task(int client_fd, char* str, bool client_state)
+      : client_fd(client_fd), client_state(client_state) {
+    strcpy(order, str);
+  };
   ~Task(){};
   void response(string message, int status);
   void response_file(int size, int status, string content_type);
@@ -69,62 +71,64 @@ void Task::response_file(int size, int status, string content_type) {
 
 void Task::run() {
   char buffer[BUFFSIZE];
+  strcpy(buffer, order);
   int size = 0;
-  while (client_state) {
-    size = read(client_fd, buffer, BUFFSIZE);
-    if (size > 0) {
-      int i = 0;
-      string method;
-      string filename;
+  // while (client_state) {
+  // size = read(client_fd, buffer, BUFFSIZE);
+  // if (size > 0) {
+  int i = 0;
+  string method;
+  string filename;
+  while (buffer[i] != ' ' && buffer[i] != '\0') {
+    method += buffer[i++];
+  }
+  i++;
+
+  while (buffer[i] != ' ' && buffer[i] != '\0' && buffer[i] != '?') {
+    filename += buffer[i++];
+  }
+  cout << method << endl;
+  cout << filename << endl;
+  if (method == "GET") {
+    response_get(filename);
+  } else if (method == "HEAD") {
+    response_head(filename);
+  } else if (method == "POST") {
+    string content;
+    int pos = content.find("username=");
+    while (pos == -1) {
+      content.clear();
       while (buffer[i] != ' ' && buffer[i] != '\0') {
-        method += buffer[i++];
+        content += buffer[i++];
       }
       i++;
-
-      while (buffer[i] != ' ' && buffer[i] != '\0' && buffer[i] != '?') {
-        filename += buffer[i++];
-      }
-      cout << method << endl;
-      cout << filename << endl;
-      if (method == "GET") {
-        response_get(filename);
-      } else if (method == "HEAD") {
-        response_head(filename);
-      } else if (method == "POST") {
-        string content;
-        int pos = content.find("username=");
-        while (pos == -1) {
-          content.clear();
-          while (buffer[i] != ' ' && buffer[i] != '\0') {
-            content += buffer[i++];
-          }
-          i++;
-          pos = content.find("username=");
-        }
-        string command;
-        if (pos != -1)
-          command = content.substr(pos, content.length() - pos);
-        else
-          command = "";
-        cout << command << endl;
-        if (filename[0] == '/' && filename.length() == 1)
-          response_post("/index.html", command);
-        else
-          response_post(filename, command);
-      } else {
-        stringstream message;
-        message << "<html><title>Myhttpd Error</title>"
-                << "<body>\r\n"
-                << " 501\r\n"
-                << " <p>" << method << "Httpd does not implement this method"
-                << "<hr><h3>The Tiny Web Server<h3></body>";
-        response(message.str(), 501);
-      }
-    } else {
-      client_state = false;
-      continue;
+      pos = content.find("username=");
     }
+    string command;
+    if (pos != -1)
+      command = content.substr(pos, content.length() - pos);
+    else
+      command = "";
+    cout << command << endl;
+    if (filename[0] == '/' && filename.length() == 1)
+      response_post("/index.html", command);
+    else
+      response_post(filename, command);
+  } else {
+    stringstream message;
+    message << "<html><title>Myhttpd Error</title>"
+            << "<body>\r\n"
+            << " 501\r\n"
+            << " <p>" << method << "Httpd does not implement this method"
+            << "<hr><h3>The Tiny Web Server<h3></body>";
+    response(message.str(), 501);
   }
+  // }
+  // else {
+  //   client_state = false;
+  //   continue;
+  // }
+  // }
   // sleep(2);
   close(client_fd);
 }
@@ -134,13 +138,6 @@ void Task::response_get(string filename) {
   string command;
   string file = path;
   file += filename;
-  int pos = filename.find('?', 0);
-  if (pos != -1) {
-    command = filename.substr(pos + 1, filename.length() - pos);
-
-    file = filename.substr(0, pos);
-    is_dynamic = true;
-  }
   // cout << filename << endl;
   if (filename[0] == '/' && filename.length() == 1) {
     file += "index.html";
@@ -161,38 +158,28 @@ void Task::response_get(string filename) {
     return;
   }
 
-  if (is_dynamic) {
-    if (fork() == 0) {
-      // Redirect output to the client
-      dup2(client_fd, STDOUT_FILENO);
-      // Perform subroutines
-      execl(file.c_str(), command.c_str(), NULL);
-    }
-    wait(NULL);
-  } else {
-    int filefd = open(file.c_str(), O_RDONLY);
-    int pos = file.rfind('.', file.length() - 1);
-    string suffix = file.substr(pos + 1, file.length() - pos);
-    string content_type = get_content_type(suffix);
-    cout << content_type << endl;
-    response_file(filestat.st_size, 200, content_type);
-    cout << "filesize: " << filestat.st_size << endl;
-    // size_t sd = sendfile(client_fd, filefd, NULL, filestat.st_size);
-    // cout << "sendsize: " << sd << endl;
-    __off64_t offset = 0;
-    ssize_t sent;
-    for (size_t size_to_send = filestat.st_size; size_to_send > 0;) {
-      sent = sendfile64(client_fd, filefd, &offset, size_to_send);
-      if (sent <= 0) {
-        cout << "sent:" << sent << endl;
-        if (sent != 0) perror("sendfile");
-        break;
-      }
-      size_to_send -= sent;
-      cout << "offset: " << offset << endl;
-      cout << "size_to_send: " << size_to_send << endl;
+  int filefd = open(file.c_str(), O_RDONLY);
+  int pos = file.rfind('.', file.length() - 1);
+  string suffix = file.substr(pos + 1, file.length() - pos);
+  string content_type = get_content_type(suffix);
+  cout << content_type << endl;
+  response_file(filestat.st_size, 200, content_type);
+  cout << "filesize: " << filestat.st_size << endl;
+  // size_t sd = sendfile(client_fd, filefd, NULL, filestat.st_size);
+  // cout << "sendsize: " << sd << endl;
+  __off64_t offset = 0;
+  ssize_t sent;
+  for (size_t size_to_send = filestat.st_size; size_to_send > 0;) {
+    sent = sendfile64(client_fd, filefd, &offset, size_to_send);
+    if (sent <= 0) {
       cout << "sent:" << sent << endl;
+      if (sent != 0) perror("sendfile");
+      break;
     }
+    size_to_send -= sent;
+    // cout << "offset: " << offset << endl;
+    // cout << "size_to_send: " << size_to_send << endl;
+    // cout << "sent:" << sent << endl;
     close(filefd);
   }
 }

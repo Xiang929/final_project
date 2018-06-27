@@ -161,7 +161,7 @@ int main(int argc, char *argv[]) {
           }
         }
       } else if (event[i].events & EPOLLOUT) {
-        Task *task = new Task(event[i].data.fd, buf, number_pool);
+        Task *task = new Task(event[i].data.fd, buf);
         pool.add_task(task);
         ev.data.fd = event[i].data.fd;
         ev.events = EPOLLIN | EPOLLET;

@@ -27,8 +27,6 @@ using namespace std;
 #define BUFF_SIZE 1024 * 1024  // 1MB
 #endif                         /* BUFF_SIZE */
 
-#define LIMIT_TIME 30
-
 const int BUFFSIZE = 4096;
 const string path = "./Resource";
 
@@ -37,12 +35,11 @@ class Task {
   int client_fd;
   char order[BUFFSIZE];
   bool is_browser;
-  int number_pool;
 
  public:
   Task(){};
-  Task(int client_fd, char* str, bool client_state)
-      : client_fd(client_fd), is_browser(false), number_pool(number_pool) {
+  Task(int client_fd, char* str)
+      : client_fd(client_fd), is_browser(false) {
     strcpy(order, str);
   };
   ~Task(){};
@@ -223,8 +220,6 @@ void Task::response_get(string filename) {
       if (in.eof()) {
         break;
       }
-      int nwrite, data_size = nb_read;
-      int n = data_size;
       nb_write = send(client_fd, buff, nb_read, 0);
 
       if (nb_write <= 0) {

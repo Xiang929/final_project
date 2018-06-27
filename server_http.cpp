@@ -24,6 +24,7 @@
 using namespace std;
 
 static int set_non_blocking(int fd) {
+  
   int old_flags, new_flags;
   old_flags = fcntl(fd, F_GETFL, 0);
   if (old_flags == -1) {
@@ -44,8 +45,10 @@ static int set_non_blocking(int fd) {
 int main(int argc, char *argv[]) {
   int epfd = 0;
   struct epoll_event ev, event[MAX_EVENT];
+  char buf[READ_BUF_LEN] = {0};
   int result = 0;
   int port = 80;
+  int number_pool = 20;
   if (argc == 3) {
     if (strcmp(argv[1], "--port")) {
       printf("Please enter \"--port \" to specify the port");
@@ -90,7 +93,7 @@ int main(int argc, char *argv[]) {
 
   cout << "http server running on port " << port << endl;
 
-  ThreadPool<Task> pool(20);
+  ThreadPool<Task> pool(number_pool);
   pool.start();
 
   epfd = epoll_create1(0);
@@ -108,7 +111,6 @@ int main(int argc, char *argv[]) {
     int wait_count;
     wait_count = epoll_wait(epfd, event, MAX_EVENT, -1);
     for (int i = 0; i < wait_count; i++) {
-
       int __result;
 
       if (server_fd == event[i].data.fd) {
@@ -133,10 +135,9 @@ int main(int argc, char *argv[]) {
             perror("Accept");
         }
         continue;
-      } else {
+      } else if (event[i].events & EPOLLIN) {
         for (;;) {
           ssize_t result_len = 0;
-          char buf[READ_BUF_LEN] = {0};
 
           result_len = read(event[i].data.fd, buf, READ_BUF_LEN - 1);
           if (result_len == -1) {
@@ -153,20 +154,32 @@ int main(int argc, char *argv[]) {
             printf("%d logout\n", event[i].data.fd);
             break;
           }
-          Task *task = new Task(event[i].data.fd, buf, false);
-          pool.add_task(task);
+          ev.data.fd = event[i].data.fd;
+          ev.events = EPOLLOUT | EPOLLET;
+          if (epoll_ctl(epfd, EPOLL_CTL_MOD, event[i].data.fd, &ev) == -1) {
+            perror("Epoll_ctl: mod");
+          }
+        }
+      } else if (event[i].events & EPOLLOUT) {
+        Task *task = new Task(event[i].data.fd, buf, number_pool);
+        pool.add_task(task);
+        ev.data.fd = event[i].data.fd;
+        ev.events = EPOLLIN | EPOLLET;
+        if (epoll_ctl(epfd, EPOLL_CTL_MOD, event[i].data.fd, &ev) == -1) {
+          perror("Epoll_ctl: mod");
         }
       }
     }
-  }
 
-  // while (true) {
-  //   client_fd =
-  //       accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
-  //   // cout << "client accept" << endl;
-  //   Task *task = new Task(client_fd, true);
-  //   pool.add_task(task);
-  // }
+    // while (true) {
+    //   client_fd =
+    //       accept(server_fd, (struct sockaddr *)&client_addr,
+    //       &client_addr_len);
+    //   // cout << "client accept" << endl;
+    //   Task *task = new Task(client_fd, true);
+    //   pool.add_task(task);
+    // }
+  }
   close(server_fd);
   return 0;
 }

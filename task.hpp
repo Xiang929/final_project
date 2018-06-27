@@ -2,13 +2,14 @@
 #define _TASK_HPP_
 
 #include <arpa/inet.h>
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <sys/epoll.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/epoll.h>
 #include <sys/sendfile.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -26,21 +27,22 @@ using namespace std;
 #define BUFF_SIZE 1024 * 1024  // 1MB
 #endif                         /* BUFF_SIZE */
 
+#define LIMIT_TIME 30
+
 const int BUFFSIZE = 4096;
-const size_t SSIZE_MAX = 2000000000 - 1;
 const string path = "./Resource";
 
 class Task {
  private:
   int client_fd;
-  bool client_state;
   char order[BUFFSIZE];
   bool is_browser;
+  int number_pool;
 
  public:
   Task(){};
   Task(int client_fd, char* str, bool client_state)
-      : client_fd(client_fd), client_state(client_state), is_browser(false) {
+      : client_fd(client_fd), is_browser(false), number_pool(number_pool) {
     strcpy(order, str);
   };
   ~Task(){};
@@ -49,6 +51,9 @@ class Task {
   void response_post(string filename, string command);
   void response_get(string filename);
   void response_head(string filename);
+  void response_delete(string filename);
+  int rm(std::string file_name);
+  int rm_dir(std::string dir_full_path);
   void run();
 
  private:
@@ -57,20 +62,37 @@ class Task {
 
 void Task::response(string message, int status) {
   stringstream header_message;
-  if (message == "HEAD404") {
-    cout << message << endl;
-    header_message << "HTTP/1.1 " << to_string(status) << " Not Found\r\n"
-                   << "Connnection: Close\r\n\r\n";
+  if (status == 404) {
+    if (message == "HEAD404") {
+      cout << message << endl;
+      header_message << "HTTP/1.1 " << to_string(status) << " Not Found\r\n"
+                     << "Connnection: Close\r\n\r\n";
+    } else {
+      header_message << "HTTP/1.1 " << to_string(status) << " Not Found\r\n"
+                     << "Connnection: Close\r\n"
+                     << "Content-type: text/html\r\n"
+                     << "Content-length:" << to_string(message.size())
+                     << "\r\n\r\n";
+    }
+    string out_message;
+    if (message != "HEAD404") {
+      out_message = header_message.str() + message;
+    } else {
+      out_message = header_message.str();
+    }
+
+    const char* buffer = out_message.c_str();
+    write(client_fd, buffer, out_message.size());
   } else {
-    header_message << "HTTP/1.1 " << to_string(status) << " Not Found\r\n"
-                   << "Connnection: Close\r\n"
+    header_message << "HTTP/1.1 " << to_string(status) << " OK\r\n"
                    << "Content-type: text/html\r\n"
                    << "Content-length:" << to_string(message.size())
                    << "\r\n\r\n";
+    string out_message;
+    out_message = header_message.str() + message;
+    const char* buffer = out_message.c_str();
+    write(client_fd, buffer, out_message.size());
   }
-  string out_message = header_message.str() + message;
-  const char* buffer = out_message.c_str();
-  write(client_fd, buffer, out_message.size());
 }
 
 void Task::response_file(int size, int status, string content_type) {
@@ -131,6 +153,8 @@ void Task::run() {
       response_post("/index.html", command);
     else
       response_post(filename, command);
+  } else if (method == "DELETE") {
+    response_delete(filename);
   } else {
     stringstream message;
     message << "<html><title>Myhttpd Error</title>"
@@ -182,22 +206,27 @@ void Task::response_get(string filename) {
   cout << "filesize: " << filestat.st_size << endl;
   std::ifstream in = std::ifstream(file, ios::binary);
   struct timeval tv;
-  tv.tv_sec = 3;
+  tv.tv_sec = 1024;
   tv.tv_usec = 500;
   fd_set wset;
-  char buff[BUFF_SIZE];
   ssize_t nb_read = 0;
   ssize_t nb_write = 0;
+  constexpr size_t buffer_size = 1024 * 1024;
+  size_t file_size = filestat.st_size;
+  char buff[buffer_size];
 
   while (true) {
     FD_ZERO(&wset);
     FD_SET(client_fd, &wset);
     if (select(client_fd + 1, NULL, &wset, NULL, &tv) > 0) {
-      nb_read = in.readsome(buff, BUFF_SIZE);
+      nb_read = in.readsome(buff, buffer_size);
       if (in.eof()) {
         break;
       }
+      int nwrite, data_size = nb_read;
+      int n = data_size;
       nb_write = send(client_fd, buff, nb_read, 0);
+
       if (nb_write <= 0) {
         break;
       }
@@ -205,7 +234,7 @@ void Task::response_get(string filename) {
         continue;
       }
       in.seekg(nb_write - nb_read, std::ios::cur);
-
+      // if (nb_read <= 0) break;
       if (in.fail()) {
         break;
       }
@@ -213,6 +242,7 @@ void Task::response_get(string filename) {
       break;
     }
   }
+
   in.close();
 }
 
@@ -259,6 +289,97 @@ void Task::response_head(string filename) {
   string content_type = get_content_type(suffix);
 
   response_file(filestat.st_size, 200, content_type);
+}
+
+void Task::response_delete(string filename) {
+  string file = path;
+  file += filename;
+  struct stat filestat;
+  int ret = stat(file.c_str(), &filestat);
+  // cout << ret << endl;
+  if (ret < 0) {
+    string message;
+    message += "<html><title>Myhttpd Error</title>";
+    message += "<body>\r\n";
+    message += " 404\r\n";
+    message += " <p>DELETE: Can't find the file";
+    message += "<hr><h3>My Web Server<h3></body>";
+    response(message, 404);
+    return;
+  }
+  cout << "get the filename" << file << endl;
+  int result = rm(file);
+  cout << "The delete result is " << result << endl;
+  if (result == 0) {
+    string message = "<html>";
+    message += "<body>";
+    message += "<h1>File deleted.</h1>";
+    message += "</body>";
+    message += "</html>";
+    response(message, 200);
+    return;
+  }
+}
+
+// recursively delete all the file in the directory.
+int Task::rm_dir(std::string dir_full_path) {
+  DIR* dirp = opendir(dir_full_path.c_str());
+  if (!dirp) {
+    return -1;
+  }
+  struct dirent* dir;
+  struct stat st;
+  while ((dir = readdir(dirp)) != NULL) {
+    if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) {
+      continue;
+    }
+    std::string sub_path = dir_full_path + '/' + dir->d_name;
+    if (lstat(sub_path.c_str(), &st) == -1) {
+      continue;
+    }
+    if (S_ISDIR(st.st_mode)) {
+      if (rm_dir(sub_path) == -1)  // �����Ŀ¼�ļ����ݹ�ɾ��
+      {
+        closedir(dirp);
+        return -1;
+      }
+      rmdir(sub_path.c_str());
+    } else if (S_ISREG(st.st_mode)) {
+      unlink(sub_path.c_str());  // �������ͨ�ļ�����unlink
+    } else {
+      // Log("rm_dir:st_mode ", sub_path, " error");
+      continue;
+    }
+  }
+  if (rmdir(dir_full_path.c_str()) == -1)  // delete dir itself.
+  {
+    closedir(dirp);
+    return -1;
+  }
+  closedir(dirp);
+  return 0;
+}
+
+int Task::rm(std::string file_name) {
+  std::string file_path = file_name;
+  struct stat st;
+  if (lstat(file_path.c_str(), &st) == -1) {
+    return -1;
+  }
+  if (S_ISREG(st.st_mode)) {
+    if (unlink(file_path.c_str()) == -1) {
+      return -1;
+    }
+  } else if (S_ISDIR(st.st_mode)) {
+    if (file_name == "." || file_name == "..") {
+      return -1;
+    }
+    if (rm_dir(file_path) == -1)  // delete all the files in dir.
+    {
+      return -1;
+    }
+  }
+  return 0;
 }
 
 string Task::get_content_type(string suffix) {

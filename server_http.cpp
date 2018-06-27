@@ -57,7 +57,8 @@ int main(int argc, char *argv[]) {
   int client_fd = -1;
   int opt = -1;
   struct sockaddr_in server_addr;
-  // socklen_t client_addr_len = sizeof(client_addr);
+  struct sockaddr_in client_addr;
+  socklen_t client_addr_len = sizeof(client_addr);
   server_fd = socket(AF_INET, SOCK_STREAM, 0);
   if (server_fd == -1) {
     perror("Socket");
@@ -107,38 +108,12 @@ int main(int argc, char *argv[]) {
     int wait_count;
     wait_count = epoll_wait(epfd, event, MAX_EVENT, -1);
     for (int i = 0; i < wait_count; i++) {
-      uint32_t events = event[i].events;
-      // IP BUFFER
-      char host_buf[NI_MAXHOST];
-      // PORT BUFFER
-      char port_buf[NI_MAXSERV];
 
       int __result;
 
-      if (events & EPOLLERR || events & EPOLLHUP || (!events & EPOLLIN)) {
-        printf("Epoll has error\n");
-        close(event[i].data.fd);
-        continue;
-      } else if (server_fd == event[i].data.fd) {
-        for (;;) {
-          struct sockaddr client_addr = {0};
-          socklen_t client_addr_len = sizeof(client_addr);
-          int client_fd = accept(server_fd, &client_addr, &client_addr_len);
-          if (client_fd == -1) {
-            perror("Accept");
-            break;
-          }
-          __result =
-              getnameinfo(&client_addr, sizeof(client_addr), host_buf,
-                          sizeof(host_buf) / sizeof(host_buf[0]), port_buf,
-                          sizeof(port_buf) / sizeof(port_buf[0]),
-                          NI_NUMERICHOST | NI_NUMERICSERV);
-
-          if (!__result) {
-            printf("New connection: host = %s, port = %s\n", host_buf,
-                   port_buf);
-          }
-
+      if (server_fd == event[i].data.fd) {
+        while ((client_fd = accept(server_fd, (struct sockaddr *)&client_fd,
+                                   &client_addr_len)) > 0) {
           __result = set_non_blocking(client_fd);
           if (result == -1) {
             return 0;
@@ -148,9 +123,14 @@ int main(int argc, char *argv[]) {
           ev.events = EPOLLIN | EPOLLET;
           __result = epoll_ctl(epfd, EPOLL_CTL_ADD, client_fd, &ev);
           if (__result == -1) {
-            perror("epoll_ctl");
+            perror("Epoll_ctl");
             return 0;
           }
+        }
+        if (client_fd == -1) {
+          if (errno != EAGAIN && errno != ECONNABORTED && errno != EPROTO &&
+              errno != EINTR)
+            perror("Accept");
         }
         continue;
       } else {
@@ -158,10 +138,9 @@ int main(int argc, char *argv[]) {
           ssize_t result_len = 0;
           char buf[READ_BUF_LEN] = {0};
 
-          result_len =
-              read(event[i].data.fd, buf, sizeof(buf) / sizeof(buf[0]));
+          result_len = read(event[i].data.fd, buf, READ_BUF_LEN - 1);
           if (result_len == -1) {
-            if (EAGAIN != errno) {
+            if (errno != EAGAIN) {
               perror("Read data");
             }
             break;

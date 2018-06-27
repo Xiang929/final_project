@@ -87,12 +87,12 @@ void ThreadPool<Type>::start() {
       delete[] threads;
       throw std::exception();
     }
-
     if (pthread_detach(threads[i])) {
       delete[] threads;
       throw std::exception();
     }
   }
+  cout << "creat therad pool" << endl;
 }
 
 template <typename Type>
@@ -116,7 +116,6 @@ void ThreadPool<Type>::run() {
       cond_locker.wait();
     } else {
       task->run();
-      delete task;
     }
   }
 }

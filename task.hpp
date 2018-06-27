@@ -4,6 +4,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <sys/epoll.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,6 +22,10 @@
 
 using namespace std;
 
+#ifndef BUFF_SIZE
+#define BUFF_SIZE 1024 * 1024  // 1MB
+#endif                         /* BUFF_SIZE */
+
 const int BUFFSIZE = 4096;
 const size_t SSIZE_MAX = 2000000000 - 1;
 const string path = "./Resource";
@@ -30,11 +35,12 @@ class Task {
   int client_fd;
   bool client_state;
   char order[BUFFSIZE];
+  bool is_browser;
 
  public:
   Task(){};
   Task(int client_fd, char* str, bool client_state)
-      : client_fd(client_fd), client_state(client_state) {
+      : client_fd(client_fd), client_state(client_state), is_browser(false) {
     strcpy(order, str);
   };
   ~Task(){};
@@ -50,12 +56,21 @@ class Task {
 };
 
 void Task::response(string message, int status) {
-  stringstream out_message;
-  out_message << "HTTP/1.1 " << to_string(status) << " OK\r\n"
-              << "Connection: Close\r\n"
-              << "Content-length:" << to_string(message.size()) << "\r\n\r\n";
-  const char* buffer = out_message.str().c_str();
-  write(client_fd, buffer, out_message.str().size());
+  stringstream header_message;
+  if (message == "HEAD404") {
+    cout << message << endl;
+    header_message << "HTTP/1.1 " << to_string(status) << " Not Found\r\n"
+                   << "Connnection: Close\r\n\r\n";
+  } else {
+    header_message << "HTTP/1.1 " << to_string(status) << " Not Found\r\n"
+                   << "Connnection: Close\r\n"
+                   << "Content-type: text/html\r\n"
+                   << "Content-length:" << to_string(message.size())
+                   << "\r\n\r\n";
+  }
+  string out_message = header_message.str() + message;
+  const char* buffer = out_message.c_str();
+  write(client_fd, buffer, out_message.size());
 }
 
 void Task::response_file(int size, int status, string content_type) {
@@ -79,6 +94,7 @@ void Task::run() {
   int i = 0;
   string method;
   string filename;
+  if ((strstr(buffer, "HTTP")) != NULL) is_browser = true;
   while (buffer[i] != ' ' && buffer[i] != '\0') {
     method += buffer[i++];
   }
@@ -89,6 +105,7 @@ void Task::run() {
   }
   cout << method << endl;
   cout << filename << endl;
+  // cout << buffer << endl;
   if (method == "GET") {
     response_get(filename);
   } else if (method == "HEAD") {
@@ -123,15 +140,14 @@ void Task::run() {
             << "<hr><h3>The Tiny Web Server<h3></body>";
     response(message.str(), 501);
   }
-  // }
-  // else {
-  //   client_state = false;
-  //   continue;
-  // }
-  // }
-  // sleep(2);
-  close(client_fd);
 }
+// else {
+//   client_state = false;
+//   continue;
+// }
+// }
+// sleep(2);
+// close(client_fd);
 
 void Task::response_get(string filename) {
   bool is_dynamic = false;
@@ -146,42 +162,58 @@ void Task::response_get(string filename) {
 
   struct stat filestat;
   int ret = stat(file.c_str(), &filestat);
-  // cout << ret << endl;
+
   if (ret < 0 || S_ISDIR(filestat.st_mode)) {
     string message;
     message += "<html><title>Myhttpd Error</title>";
     message += "<body>\r\n";
     message += " 404\r\n";
     message += " <p>GET: Can't find the file";
-    message += " <hr><h3>My Web Server<h3></body>";
+    message += "<hr><h3>My Web Server<h3></body>";
     response(message, 404);
     return;
   }
-
   int filefd = open(file.c_str(), O_RDONLY);
   int pos = file.rfind('.', file.length() - 1);
   string suffix = file.substr(pos + 1, file.length() - pos);
   string content_type = get_content_type(suffix);
   cout << content_type << endl;
-  response_file(filestat.st_size, 200, content_type);
+  if (is_browser) response_file(filestat.st_size, 200, content_type);
   cout << "filesize: " << filestat.st_size << endl;
-  // size_t sd = sendfile(client_fd, filefd, NULL, filestat.st_size);
-  // cout << "sendsize: " << sd << endl;
-  __off64_t offset = 0;
-  ssize_t sent;
-  for (size_t size_to_send = filestat.st_size; size_to_send > 0;) {
-    sent = sendfile64(client_fd, filefd, &offset, size_to_send);
-    if (sent <= 0) {
-      cout << "sent:" << sent << endl;
-      if (sent != 0) perror("sendfile");
+  std::ifstream in = std::ifstream(file, ios::binary);
+  struct timeval tv;
+  tv.tv_sec = 3;
+  tv.tv_usec = 500;
+  fd_set wset;
+  char buff[BUFF_SIZE];
+  ssize_t nb_read = 0;
+  ssize_t nb_write = 0;
+
+  while (true) {
+    FD_ZERO(&wset);
+    FD_SET(client_fd, &wset);
+    if (select(client_fd + 1, NULL, &wset, NULL, &tv) > 0) {
+      nb_read = in.readsome(buff, BUFF_SIZE);
+      if (in.eof()) {
+        break;
+      }
+      nb_write = send(client_fd, buff, nb_read, 0);
+      if (nb_write <= 0) {
+        break;
+      }
+      if (nb_write == nb_read) {
+        continue;
+      }
+      in.seekg(nb_write - nb_read, std::ios::cur);
+
+      if (in.fail()) {
+        break;
+      }
+    } else {
       break;
     }
-    size_to_send -= sent;
-    // cout << "offset: " << offset << endl;
-    // cout << "size_to_send: " << size_to_send << endl;
-    // cout << "sent:" << sent << endl;
-    close(filefd);
   }
+  in.close();
 }
 
 void Task::response_post(string filename, string command) {
@@ -210,7 +242,24 @@ void Task::response_post(string filename, string command) {
   wait(NULL);
 }
 
-void Task::response_head(string filename) {}
+void Task::response_head(string filename) {
+  string file = path;
+  file += filename;
+
+  struct stat filestat;
+  int ret = stat(file.c_str(), &filestat);
+  if (ret < 0 || S_ISDIR(filestat.st_mode)) {
+    string message = "HEAD404";
+    response(message, 404);
+    return;
+  }
+  int filefd = open(file.c_str(), O_RDONLY);
+  int pos = file.rfind('.', file.length() - 1);
+  string suffix = file.substr(pos + 1, file.length() - pos);
+  string content_type = get_content_type(suffix);
+
+  response_file(filestat.st_size, 200, content_type);
+}
 
 string Task::get_content_type(string suffix) {
   if (suffix == "asc" || suffix == "txt" || suffix == "text" ||
